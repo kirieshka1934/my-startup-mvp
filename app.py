@@ -1,28 +1,36 @@
 import streamlit as st
-import google.generativeai as genai
-from PIL import Image
+import yandexcloud
+from yandex.cloud.ai.foundation_models.v1.foundation_models_service_pb2 import CompletionRequest
+from yandex.cloud.ai.foundation_models.v1.foundation_models_service_pb2_grpc import TextGenerationServiceStub
+from yandex.cloud.ai.foundation_models.v1.foundation_models_pb2 import CompletionOptions, Message
 from docx import Document
 import io
 
-# --- НАСТРОЙКИ СТРАНИЦЫ ---
+# --- НАСТРОЙКИ ---
 st.set_page_config(page_title="StudyFlow AI", layout="wide")
+st.title("🎓 StudyFlow: Твой AI-помощник (YandexGPT)")
 
-st.title("🎓 StudyFlow: Твой AI-помощник")
-st.write("Загрузи фото конспекта, и я переведу его в текст + создам документ Word.")
+# --- ФУНКЦИЯ РАБОТЫ С ЯНДЕКСОМ ---
+def ask_yandex(text, api_key, folder_id):
+    sdk = yandexcloud.SDK(api_key=api_key)
+    service = sdk.client(TextGenerationServiceStub)
+    
+    request = CompletionRequest(
+        model_uri=f"gpt://{folder_id}/yandexgpt-lite/latest",
+        completion_options=CompletionOptions(temperature=0.6, max_tokens=2000),
+        messages=[
+            Message(role="system", text="Ты — AI-тьютор. Сделай краткий конспект и тест из 3 вопросов по тексту."),
+            Message(role="user", text=text)
+        ]
+    )
+    
+    res = service.Completion(request)
+    return res.alternatives[0].message.text
 
-# --- ПОДКЛЮЧЕНИЕ К GEMINI ---
-try:
-    api_key = st.secrets["GEMINI_API_KEY"]
-    genai.configure(api_key=api_key)
-    # ИСПОЛЬЗУЕМ ДРУГУЮ, БОЛЕЕ СТАБИЛЬНУЮ МОДЕЛЬ, СПЕЦИАЛЬНО ДЛЯ КАРТИНОК
-    model = genai.GenerativeModel('gemini-pro')
-except Exception as e:
-    st.error(f"Ошибка ключа API. Проверьте настройки Secrets. {e}")
-
-# --- ФУНКЦИЯ ДЛЯ СОЗДАНИЯ WORD ФАЙЛА ---
+# --- ФУНКЦИЯ СОЗДАНИЯ WORD ---
 def create_docx(text):
     doc = Document()
-    doc.add_heading('Конспект (StudyFlow)', 0)
+    doc.add_heading('Конспект StudyFlow', 0)
     for line in text.split('\n'):
         doc.add_paragraph(line)
     buffer = io.BytesIO()
@@ -31,41 +39,23 @@ def create_docx(text):
     return buffer
 
 # --- ИНТЕРФЕЙС ---
-col1, col2 = st.columns(2)
+user_text = st.text_area("Вставь сюда текст лекции:", height=250)
 
-with col1:
-    st.header("1. Загрузка")
-    uploaded_file = st.file_uploader("Фото конспекта (JPG, PNG)", type=["jpg", "png"])
-    generate_btn = st.button("🚀 Разобрать материал")
-
-with col2:
-    st.header("2. Результат")
-    
-    if generate_btn and uploaded_file is not None:
-        image = Image.open(uploaded_file)
-        st.image(image, caption="Исходник", use_column_width=True)
-
-        with st.spinner('ИИ думает...'):
-            try:
-                # Упрощаем запрос: отправляем только картинку и простой текст
-                response = model.generate_content([
-                    "Распознай этот рукописный текст. Если видишь математические формулы, оформи их в формате LaTeX.", 
-                    image
-                ])
+if st.button("🚀 Обработать"):
+    if user_text:
+        try:
+            # Берем ключи из Secrets
+            api_key = st.secrets["YC_API_KEY"]
+            folder_id = st.secrets["YC_FOLDER_ID"]
+            
+            with st.spinner("Яндекс думает..."):
+                result = ask_yandex(user_text, api_key, folder_id)
+                st.markdown(result)
                 
-                result_text = response.text
-                st.markdown(result_text)
-                st.success("Готово!")
-                
-                docx_file = create_docx(result_text)
-                st.download_button(
-                    label="📄 Скачать конспект (.docx)",
-                    data=docx_file,
-                    file_name="konspekt_studyflow.docx",
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                )
-                
-            except Exception as e:
-                st.error(f"Произошла ошибка: {e}")
-    elif generate_btn and uploaded_file is None:
-        st.warning("Пожалуйста, загрузи фото!")
+                # Кнопка скачивания
+                file = create_docx(result)
+                st.download_button("📥 Скачать Word", file, "konspekt.docx")
+        except Exception as e:
+            st.error(f"Ошибка: {e}")
+    else:
+        st.warning("Сначала вставь текст!")
