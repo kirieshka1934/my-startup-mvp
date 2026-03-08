@@ -15,7 +15,7 @@ try:
     api_key = st.secrets["GEMINI_API_KEY"]
     genai.configure(api_key=api_key)
     # ИСПОЛЬЗУЕМ 1.5, ТАК КАК ОНА САМАЯ СТАБИЛЬНАЯ И БЕСПЛАТНАЯ
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-1.5-flash-latest')
 except Exception as e:
     st.error("Ошибка ключа API. Проверьте настройки Secrets.")
 
