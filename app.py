@@ -21,15 +21,16 @@ def recognize_text(image_bytes, api_key, folder_id):
         "content": encoded_image
     }
     response = requests.post(url, headers=headers, json=payload)
+    
     if response.status_code == 200:
-        # Собираем все кусочки текста в одну строку
-        blocks = response.json()['result']['textAnnotation']['blocks']
+        blocks = response.json().get('result', {}).get('textAnnotation', {}).get('blocks', [])
         full_text = ""
         for block in blocks:
-            for line in block['lines']:
-                full_text += line['text'] + " "
+            for line in block.get('lines', []):
+                full_text += line.get('text', '') + " "
         return full_text
     else:
+        st.error(f"Ошибка OCR (Код {response.status_code}): {response.text}")
         return None
 
 # --- 2. ФУНКЦИЯ ОБРАБОТКИ ТЕКСТА (GPT) ---
@@ -47,7 +48,7 @@ def ask_yandex_gpt(text, api_key, folder_id):
     response = requests.post(url, headers=headers, json=payload)
     if response.status_code == 200:
         return response.json()['result']['alternatives'][0]['message']['text']
-    return f"Ошибка GPT: {response.text}"
+    return f"Ошибка GPT (Код {response.status_code}): {response.text}"
 
 # --- 3. ФУНКЦИЯ WORD ---
 def create_docx(text):
@@ -61,7 +62,7 @@ def create_docx(text):
     return buffer
 
 # --- ИНТЕРФЕЙС ---
-uploaded_file = st.file_uploader("Загрузи фото конспекта (JPG, PNG):", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("Загрузи фото конспекта:", type=["jpg", "jpeg", "png"])
 user_text = st.text_area("Или просто вставь текст вручную:", height=150)
 
 if st.button("🚀 Обработать материал"):
@@ -75,8 +76,6 @@ if st.button("🚀 Обработать материал"):
             img_bytes = uploaded_file.read()
             st.image(img_bytes, width=400)
             source_text = recognize_text(img_bytes, api_key, folder_id)
-            if not source_text:
-                st.error("Не удалось прочитать текст на фото.")
     elif user_text:
         source_text = user_text
         
@@ -87,6 +86,6 @@ if st.button("🚀 Обработать материал"):
             st.markdown(final_result)
             
             file = create_docx(final_result)
-            st.download_button("📥 Скачать Word", file, "konspekt.docx")
+            st.download_button("📥 Скачать Word", file, "konspekt_studyflow.docx")
     else:
         st.warning("Загрузи фото или вставь текст!")
