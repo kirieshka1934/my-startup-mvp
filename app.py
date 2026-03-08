@@ -15,7 +15,7 @@ try:
     api_key = st.secrets["GEMINI_API_KEY"]
     genai.configure(api_key=api_key)
     # ИСПОЛЬЗУЕМ ДРУГУЮ, БОЛЕЕ СТАБИЛЬНУЮ МОДЕЛЬ, СПЕЦИАЛЬНО ДЛЯ КАРТИНОК
-    model = genai.GenerativeModel('gemini-pro-vision')
+    model = genai.GenerativeModel('gemini-pro')
 except Exception as e:
     st.error(f"Ошибка ключа API. Проверьте настройки Secrets. {e}")
 
