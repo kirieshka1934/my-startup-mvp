@@ -1,3 +1,2 @@
 streamlit
-yandexcloud
 python-docx
