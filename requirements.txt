@@ -1,3 +1,121 @@
 streamlit
-google-generativeai
-python-docx
+yandexcloud
+python-docx```
+*Нажми **Commit changes**.*
+
+#### Шаг 3. Финальный код на YandexGPT (app.py)
+**ЗАМЕНИ ВЕСЬ КОД** в `app.py` на этот. Он делает то же самое, но через сервера Яндекса.
+
+```python
+import streamlit as st
+import yandex.cloud.ai.foundation_models.v1.foundation_models_service_pb2 as foundation_models_service_pb2
+import yandex.cloud.ai.foundation_models.v1.foundation_models_pb2 as foundation_models_pb2
+from yandex.cloud.iam.v1.iam_token_service_pb2 import CreateIamTokenRequest
+from yandex.cloud.iam.v1.iam_token_service_pb2_grpc import IamTokenServiceStub
+import yandexcloud
+from docx import Document
+import io
+
+# --- НАСТРОЙКИ СТРАНИЦЫ ---
+st.set_page_config(page_title="StudyFlow AI", layout="wide")
+st.title("🎓 StudyFlow: Твой AI-помощник (на базе YandexGPT)")
+st.write("Вставьте текст лекции, а я сделаю выжимку, тесты и документ Word.")
+
+# --- ПОДКЛЮЧЕНИЕ К YANDEXGPT ---
+# Функция для получения IAM-токена
+def get_iam_token(oauth_token):
+    channel_credentials = yandexcloud.ChannelCredentials()
+    sdk = yandexcloud.SDK(channel_credentials=channel_credentials)
+    iam_token_service = sdk.client(IamTokenServiceStub)
+    request = CreateIamTokenRequest(yandex_passport_oauth_token=oauth_token)
+    response = iam_token_service.Create(request)
+    return response.iam_token
+
+# Функция для отправки запроса к YandexGPT
+def ask_yandex_gpt(api_key, folder_id, text):
+    try:
+        credentials = yandexcloud.ApiKeyCredentials(api_key)
+        sdk = yandexcloud.SDK(service_account_key=credentials)
+        
+        request = foundation_models_service_pb2.CompletionRequest(
+            model_uri=f"gpt://{folder_id}/yandexgpt-lite",
+            completion_options=foundation_models_pb2.CompletionOptions(
+                stream=False,
+                temperature=0.6,
+                max_tokens="2000"
+            ),
+            messages=[
+                foundation_models_pb2.Message(
+                    role="system",
+                    text="Ты — AI-тьютор. Твоя задача - проанализировать текст и помочь студенту."
+                ),
+                foundation_models_pb2.Message(
+                    role="user",
+                    text=f"""Проанализируй следующий текст:
+                           ---
+                           {text}
+                           ---
+                           Сделай краткое саммари (конспект) и составь 3 проверочных вопроса с вариантами ответов. Оформи ответ красиво, используя Markdown.
+                           """
+                )
+            ]
+        )
+        
+        service = sdk.client(foundation_models_service_pb2.TextGenerationServiceStub)
+        response = service.Completion(request)
+        
+        return response.alternatives[0].message.text
+    except Exception as e:
+        # Возвращаем текст ошибки, чтобы было понятно, в чем проблема
+        return f"Произошла ошибка при обращении к YandexGPT: {e}"
+
+# --- ФУНКЦИЯ ДЛЯ СОЗДАНИЯ WORD ФАЙЛА ---
+def create_docx(text):
+    doc = Document()
+    doc.add_heading('Конспект (StudyFlow)', 0)
+    for line in text.split('\n'):
+        doc.add_paragraph(line)
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+# --- ИНТЕРФЕЙС ---
+col1, col2 = st.columns(2)
+
+with col1:
+    st.header("1. Вставьте ваш текст")
+    user_text = st.text_area("Сюда можно вставить текст лекции, параграф из учебника и т.д.", height=300)
+    generate_btn = st.button("🚀 Обработать текст")
+
+with col2:
+    st.header("2. Результат")
+    
+    if generate_btn and user_text:
+        try:
+            YC_API_KEY = st.secrets["YC_API_KEY"]
+            YC_FOLDER_ID = st.secrets["YC_FOLDER_ID"]
+            
+            with st.spinner('YandexGPT думает...'):
+                result_text = ask_yandex_gpt(YC_API_KEY, YC_FOLDER_ID, user_text)
+                
+                st.markdown(result_text)
+                
+                if not result_text.startswith("Произошла ошибка"):
+                    st.success("Готово!")
+                    docx_file = create_docx(result_text)
+                    st.download_button(
+                        label="📄 Скачать результат (.docx)",
+                        data=docx_file,
+                        file_name="result_studyflow.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    )
+                else:
+                    st.error(result_text)
+
+        except KeyError:
+            st.error("Ошибка: API-ключ или Folder ID не найдены в настройках Secrets.")
+        except Exception as e:
+            st.error(f"Неизвестная ошибка: {e}")
+    elif generate_btn and not user_text:
+        st.warning("Пожалуйста, вставьте текст в поле слева!")
