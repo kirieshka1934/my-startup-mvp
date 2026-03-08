@@ -1,31 +1,33 @@
 import streamlit as st
-import yandexcloud
-from yandex.cloud.ai.foundation_models.v1.foundation_models_service_pb2 import CompletionRequest
-from yandex.cloud.ai.foundation_models.v1.foundation_models_service_pb2_grpc import TextGenerationServiceStub
-from yandex.cloud.ai.foundation_models.v1.foundation_models_pb2 import CompletionOptions, Message
+import requests
 from docx import Document
 import io
 
 # --- НАСТРОЙКИ ---
 st.set_page_config(page_title="StudyFlow AI", layout="wide")
-st.title("🎓 StudyFlow: Твой AI-помощник (YandexGPT)")
+st.title("🎓 StudyFlow: Твой AI-помощник")
 
-# --- ФУНКЦИЯ РАБОТЫ С ЯНДЕКСОМ ---
-def ask_yandex(text, api_key, folder_id):
-    sdk = yandexcloud.SDK(api_key=api_key)
-    service = sdk.client(TextGenerationServiceStub)
-    
-    request = CompletionRequest(
-        model_uri=f"gpt://{folder_id}/yandexgpt-lite/latest",
-        completion_options=CompletionOptions(temperature=0.6, max_tokens=2000),
-        messages=[
-            Message(role="system", text="Ты — AI-тьютор. Сделай краткий конспект и тест из 3 вопросов по тексту."),
-            Message(role="user", text=text)
+# --- ФУНКЦИЯ РАБОТЫ С ЯНДЕКСОМ (ЧЕРЕЗ HTTP) ---
+def ask_yandex_gpt(text, api_key, folder_id):
+    url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Api-Key {api_key}"
+    }
+    payload = {
+        "modelUri": f"gpt://{folder_id}/yandexgpt-lite",
+        "completionOptions": {"stream": False, "temperature": 0.6, "maxTokens": "2000"},
+        "messages": [
+            {"role": "system", "text": "Ты — AI-тьютор. Сделай краткий конспект и тест из 3 вопросов."},
+            {"role": "user", "text": text}
         ]
-    )
+    }
     
-    res = service.Completion(request)
-    return res.alternatives[0].message.text
+    response = requests.post(url, headers=headers, json=payload)
+    if response.status_code == 200:
+        return response.json()['result']['alternatives'][0]['message']['text']
+    else:
+        return f"Ошибка Яндекса: {response.text}"
 
 # --- ФУНКЦИЯ СОЗДАНИЯ WORD ---
 def create_docx(text):
@@ -44,18 +46,18 @@ user_text = st.text_area("Вставь сюда текст лекции:", heigh
 if st.button("🚀 Обработать"):
     if user_text:
         try:
-            # Берем ключи из Secrets
+            # Ключи берем из Secrets (они у тебя там уже есть)
             api_key = st.secrets["YC_API_KEY"]
             folder_id = st.secrets["YC_FOLDER_ID"]
             
-            with st.spinner("Яндекс думает..."):
-                result = ask_yandex(user_text, api_key, folder_id)
+            with st.spinner("Яндекс анализирует..."):
+                result = ask_yandex_gpt(user_text, api_key, folder_id)
                 st.markdown(result)
                 
-                # Кнопка скачивания
-                file = create_docx(result)
-                st.download_button("📥 Скачать Word", file, "konspekt.docx")
+                if "Ошибка" not in result:
+                    file = create_docx(result)
+                    st.download_button("📥 Скачать Word", file, "konspekt.docx")
         except Exception as e:
-            st.error(f"Ошибка: {e}")
+            st.error(f"Произошла ошибка: {e}")
     else:
         st.warning("Сначала вставь текст!")
